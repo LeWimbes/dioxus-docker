@@ -1,6 +1,6 @@
 FROM rust:1 AS builder
 
-RUN cargo install --git https://github.com/DioxusLabs/dioxus --rev 851abe82d544eea11b3610e40eb47265fc40010b dioxus-cli
+RUN cargo install --git https://github.com/DioxusLabs/dioxus --rev 463e67cd124bf676d4320150727e8e6ee507a28b dioxus-cli
 RUN curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64
 RUN mv tailwindcss-linux-x64 tailwindcss
 RUN chmod +x tailwindcss
