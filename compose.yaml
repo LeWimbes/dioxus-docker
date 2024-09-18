@@ -1,7 +1,0 @@
-services:
-  dioxus:
-    build: .
-    image: lewimbes/dioxus:latest
-    container_name: dioxus
-    stdin_open: true
-    tty: true

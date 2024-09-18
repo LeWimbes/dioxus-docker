@@ -3,6 +3,5 @@
 This repository is used to build and push Docker images for building applications using Dioxus and TailwindCSS.
 
 ```bash
-sudo docker compose build
-sudo docker push lewimbes/dioxus:latest
+sudo docker build --platform linux/amd64,linux/arm64 -t lewimbes/dioxus:latest --push .
 ```
