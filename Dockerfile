@@ -20,5 +20,7 @@ RUN apt-get update && apt-get full-upgrade -y \
     && apt-get install -y build-essential pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN rustup target add wasm32-unknown-unknown
+
 COPY --from=builder /usr/local/cargo/bin/dx /usr/local/cargo/bin/dx
 COPY --from=builder /tailwindcss /usr/local/bin/tailwindcss
