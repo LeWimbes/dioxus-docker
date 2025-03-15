@@ -1,6 +1,7 @@
 FROM rust:1 AS builder
 
-RUN cargo install dioxus-cli --version 0.6.1
+RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash && \
+    cargo binstall dioxus-cli --version 0.6.3 --force
 
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
@@ -17,7 +18,7 @@ RUN ARCH=$(uname -m) && \
 FROM rust:1-slim
 
 RUN apt-get update && apt-get full-upgrade -y \
-    && apt-get install -y build-essential pkg-config libssl-dev \
+    && apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add wasm32-unknown-unknown
