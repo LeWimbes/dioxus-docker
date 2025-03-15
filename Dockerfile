@@ -1,6 +1,6 @@
 FROM rust:1 AS builder
 
-RUN cargo install dioxus-cli --version 0.6.0-rc.0
+RUN cargo install dioxus-cli --version 0.6.1
 
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
