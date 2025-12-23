@@ -1,7 +1,7 @@
 FROM rust:1 AS builder
 
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash && \
-    cargo binstall dioxus-cli --version 0.6.3 --force
+    cargo binstall dioxus-cli --version 0.7.2 --force
 
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
