@@ -1,31 +1,29 @@
-FROM rust:alpine AS builder
+FROM rust:alpine AS base
 
 RUN apk add --no-cache \
     musl-dev \
     openssl-dev \
     openssl-libs-static \
-    curl
+    pkgconfig
 
-RUN cargo install --locked dioxus-cli@0.7.2
+FROM base AS installer
 
-RUN ARCH=$(uname -m) && \
+RUN apk add --no-cache curl && \
+    cargo install --locked dioxus-cli@0.7.2 && \
+    ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then \
-        curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64; \
+        curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64-musl; \
     elif [ "$ARCH" = "aarch64" ]; then \
-        curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-arm64; \
+        curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-arm64-musl; \
     else \
         echo "Unsupported architecture"; exit 1; \
     fi && \
     mv tailwindcss-linux-* tailwindcss && \
     chmod +x tailwindcss
 
-FROM rust:alpine
-
-RUN apk add --no-cache \
-    musl-dev \
-    openssl-dev
+FROM base
 
 RUN rustup target add wasm32-unknown-unknown
 
-COPY --from=builder /usr/local/cargo/bin/dx /usr/local/cargo/bin/dx
-COPY --from=builder /tailwindcss /usr/local/bin/tailwindcss
+COPY --from=installer /usr/local/cargo/bin/dx /usr/local/cargo/bin/dx
+COPY --from=installer /tailwindcss /usr/local/bin/tailwindcss
