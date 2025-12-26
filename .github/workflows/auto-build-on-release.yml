@@ -1,0 +1,227 @@
+name: Build & Publish Dioxus CLI Docker Image
+
+on:
+  schedule:
+    - cron: "20 4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Dioxus CLI version, e.g. 0.7.2"
+        required: true
+        type: string
+
+env:
+  UPSTREAM_OWNER: DioxusLabs
+  UPSTREAM_REPO: dioxus
+
+  DOCKERHUB_REPO: lewimbes/dioxus
+  GHCR_REPO: ghcr.io/${{ github.repository }}
+
+jobs:
+  check-release:
+    name: Check Release Availability
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      is_latest_global: ${{ steps.check.outputs.is_latest_global }}
+      is_latest_major: ${{ steps.check.outputs.is_latest_major }}
+      is_latest_minor: ${{ steps.check.outputs.is_latest_minor }}
+      should_build: ${{ steps.check.outputs.should_build }}
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version, check assets, and decide tags
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Manual dispatch always forces rebuild; schedule never forces.
+          FORCE="false"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            FORCE="true"
+          fi
+
+          # Resolve tag from input or latest stable release
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            in="${VERSION_INPUT}"
+            if [[ "${in}" == v* ]]; then tag="${in}"; else tag="v${in}"; fi
+          else
+            tag="$(gh api "repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
+          fi
+
+          if [[ -z "${tag}" || "${tag}" == "null" ]]; then
+            echo "::error::Could not resolve target release tag"
+            exit 1
+          fi
+
+          version="${tag#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Resolved version '${version}' is not in expected format X.Y.Z"
+            exit 1
+          fi
+
+          major="${version%%.*}"
+          minor="${version#*.}"; minor="${minor%%.*}"
+
+          # Check that the required assets are present in the release
+          rel_json="$(gh api "repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/releases/tags/${tag}")"
+
+          required_assets=(
+            "dx-x86_64-unknown-linux-gnu.tar.gz"
+            "dx-aarch64-unknown-linux-gnu.tar.gz"
+          )
+
+          missing=0
+          for a in "${required_assets[@]}"; do
+            if ! echo "${rel_json}" | jq -e --arg name "${a}" '.assets[]? | select(.name == $name)' >/dev/null; then
+              echo "::notice title=Release not ready yet::Missing asset ${a} on ${tag}"
+              missing=1
+            fi
+          done
+
+          # Verify that assets have non-zero size
+          if [[ $missing -eq 0 ]]; then
+            for a in "${required_assets[@]}"; do
+              sz="$(echo "${rel_json}" | jq -r --arg name "${a}" '.assets[] | select(.name == $name) | .size')"
+              if [[ -z "${sz}" || "${sz}" == "null" || "${sz}" -le 0 ]]; then
+                echo "::notice title=Release not ready yet::Asset ${a} has size=${sz}"
+                missing=1
+              fi
+            done
+          fi
+
+          if [[ $missing -ne 0 ]]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Determine if this is the latest global, major, and minor release
+          all_pages="$(gh api "repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/releases?per_page=100" --paginate)"
+          all_releases="$(echo "${all_pages}" | jq -s 'add')"
+
+          versions="$(
+            echo "${all_releases}" \
+              | jq -r '.[] | select(.draft==false and .prerelease==false) | .tag_name' \
+              | sed 's/^v//' \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -u
+          )"
+
+          latest_global="$(printf "%s\n" "$versions" | sort -V | tail -n1)"
+          latest_major="$(printf "%s\n" "$versions" | grep -E "^${major}\." | sort -V | tail -n1 || true)"
+          latest_minor="$(printf "%s\n" "$versions" | grep -E "^${major}\.${minor}\." | sort -V | tail -n1 || true)"
+
+          is_latest_global="false"
+          is_latest_major="false"
+          is_latest_minor="false"
+          [[ "${version}" == "${latest_global}" ]] && is_latest_global="true"
+          [[ -n "${latest_major}" && "${version}" == "${latest_major}" ]] && is_latest_major="true"
+          [[ -n "${latest_minor}" && "${version}" == "${latest_minor}" ]] && is_latest_minor="true"
+
+          echo "is_latest_global=${is_latest_global}" >> "$GITHUB_OUTPUT"
+          echo "is_latest_major=${is_latest_major}" >> "$GITHUB_OUTPUT"
+          echo "is_latest_minor=${is_latest_minor}" >> "$GITHUB_OUTPUT"
+
+          # Skip if already published
+          if [[ "${FORCE}" != "true" ]]; then
+            if docker manifest inspect "${GHCR_REPO}:${version}" >/dev/null 2>&1; then
+              echo "::notice title=Already published::${GHCR_REPO}:${version} exists"
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Will build::version=${version} latest_global=${is_latest_global} latest_major=${is_latest_major} latest_minor=${is_latest_minor}"
+
+  build-and-push:
+    name: Build and Push Docker image
+    needs: check-release
+    if: needs.check-release.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract version components
+        id: versions
+        env:
+          VERSION: ${{ needs.check-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "full=$VERSION"                 >> "$GITHUB_OUTPUT"
+          echo "major_minor=${VERSION%.*}"     >> "$GITHUB_OUTPUT"
+          echo "major=${VERSION%%.*}"          >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKERHUB_REPO }}
+            ${{ env.GHCR_REPO }}
+          tags: |
+            type=raw,value=${{ steps.versions.outputs.full }}
+            type=raw,value=${{ steps.versions.outputs.major_minor }},enable=${{ needs.check-release.outputs.is_latest_minor }}
+            type=raw,value=${{ steps.versions.outputs.major }},enable=${{ needs.check-release.outputs.is_latest_major }}
+            type=raw,value=latest,enable=${{ needs.check-release.outputs.is_latest_global }}
+
+      - name: Build and push Docker images
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: |
+            linux/amd64
+            linux/arm64
+          build-args: |
+            DIOXUS_CLI_VERSION=${{ needs.check-release.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.GHCR_REPO }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
