@@ -7,6 +7,7 @@ Automatically builds and publishes **multi‑architecture Docker images** for [D
 ---
 
 ## ✨ Why use this image?
+
 - **Multi‑arch** – runs on `linux/amd64` and `linux/arm64`.
 - **Automatic rebuilds** – whenever a new Dioxus version is released.
 - Available from **Docker Hub** (`lewimbes/dioxus`) and **GHCR** (`ghcr.io/lewimbes/dioxus-docker`).
@@ -40,6 +41,9 @@ docker buildx build \
 
 ## 🚀 Usage
 
+Below are some examples of how to use the Dioxus Docker image to build your Dioxus app.  
+While these may not fit your use case exactly, they should provide a good starting point.
+
 ### Locally
 
 ```bash
@@ -51,6 +55,70 @@ docker run --rm \
   -w /workspace \
   ghcr.io/lewimbes/dioxus-docker:0.7.2 \
   dx build --release
+```
+
+### For GitHub Pages CD
+
+```yaml
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/lewimbes/dioxus-docker:0.7.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build Dioxus App
+        run: dx build --release --platform web
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: target/dx/<my-project>/release/web/public/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+### For GitLab Pages CD
+
+```yaml
+image: ghcr.io/lewimbes/dioxus-docker:0.7.2
+
+pages:
+  stage: deploy
+  script:
+    - dx build --release --platform web
+    - cp -a target/dx/<my-project>/release/web/public/. public/
+  artifacts:
+    paths:
+      - public
+  cache:
+    key: target
+    paths:
+      - target/
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 ```
 
 ---
