@@ -32,13 +32,6 @@ jobs:
       should_build: ${{ steps.check.outputs.should_build }}
 
     steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Resolve version, check assets, and decide tags
         id: check
         env:
@@ -140,7 +133,13 @@ jobs:
 
           # Skip if already published
           if [[ "${FORCE}" != "true" ]]; then
-            if docker manifest inspect "${GHCR_REPO}:${version}" >/dev/null 2>&1; then
+            # Extract package name from repository ("owner/repo" -> "repo")
+            package_name="${{ github.repository }}"
+            package_name="${package_name##*/}"
+
+            # Check if version tag exists in GHCR
+            if gh api "users/${{ github.repository_owner }}/packages/container/${package_name}/versions" --paginate 2>/dev/null \
+                 | jq -e --arg ver "${version}" '.[].metadata.container.tags[]? | select(. == $ver)' >/dev/null 2>&1; then
               echo "::notice title=Already published::${GHCR_REPO}:${version} exists"
               echo "should_build=false" >> "$GITHUB_OUTPUT"
               exit 0
