@@ -21,7 +21,7 @@ Automatically builds and publishes **multi‑architecture Docker images** for [D
 docker pull ghcr.io/lewimbes/dioxus-docker:latest
 
 # Or pin a specific version
-docker pull ghcr.io/lewimbes/dioxus-docker:0.7.2
+docker pull ghcr.io/lewimbes/dioxus-docker:0.7.3
 docker pull ghcr.io/lewimbes/dioxus-docker:0.7
 docker pull ghcr.io/lewimbes/dioxus-docker:0
 ```
@@ -33,8 +33,8 @@ docker pull ghcr.io/lewimbes/dioxus-docker:0
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg DIOXUS_CLI_VERSION=0.7.2 \
-  -t dioxus:0.7.2 .
+  --build-arg DIOXUS_CLI_VERSION=0.7.3 \
+  -t dioxus:0.7.3 .
 ```
 
 ---
@@ -53,7 +53,7 @@ docker run --rm \
   -e HOME=/tmp \
   -v .:/workspace \
   -w /workspace \
-  ghcr.io/lewimbes/dioxus-docker:0.7.2 \
+  ghcr.io/lewimbes/dioxus-docker:0.7.3 \
   dx build --release
 ```
 
@@ -75,7 +75,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/lewimbes/dioxus-docker:0.7.2
+      image: ghcr.io/lewimbes/dioxus-docker:0.7.3
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -103,7 +103,7 @@ jobs:
 ### For GitLab Pages CD
 
 ```yaml
-image: ghcr.io/lewimbes/dioxus-docker:0.7.2
+image: ghcr.io/lewimbes/dioxus-docker:0.7.3
 
 pages:
   stage: deploy
