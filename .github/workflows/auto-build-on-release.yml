@@ -10,6 +10,13 @@ on:
         required: true
         type: string
 
+# Jobs opt into the permissions they need.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 env:
   UPSTREAM_OWNER: DioxusLabs
   UPSTREAM_REPO: dioxus
@@ -23,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
+      packages: read # list GHCR container versions to detect already-published tags
     outputs:
       version: ${{ steps.check.outputs.version }}
       is_latest_global: ${{ steps.check.outputs.is_latest_global }}
@@ -38,6 +45,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION_INPUT: ${{ github.event.inputs.version }}
           EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         shell: bash
         run: |
           set -euo pipefail
@@ -134,11 +143,10 @@ jobs:
           # Skip if already published
           if [[ "${FORCE}" != "true" ]]; then
             # Extract package name from repository ("owner/repo" -> "repo")
-            package_name="${{ github.repository }}"
-            package_name="${package_name##*/}"
+            package_name="${REPOSITORY##*/}"
 
             # Check if version tag exists in GHCR
-            if gh api "users/${{ github.repository_owner }}/packages/container/${package_name}/versions" --paginate 2>/dev/null \
+            if gh api "users/${REPOSITORY_OWNER}/packages/container/${package_name}/versions" --paginate 2>/dev/null \
                  | jq -e --arg ver "${version}" '.[].metadata.container.tags[]? | select(. == $ver)' >/dev/null 2>&1; then
               echo "::notice title=Already published::${GHCR_REPO}:${version} exists"
               echo "should_build=false" >> "$GITHUB_OUTPUT"
@@ -154,11 +162,12 @@ jobs:
     needs: check-release
     if: needs.check-release.outputs.should_build == 'true'
     runs-on: ubuntu-latest
+    environment: dockerhub
     permissions:
-      packages: write
+      packages: write # push images to GHCR and attach the attestation to them
       contents: read
-      attestations: write
-      id-token: write
+      attestations: write # create the build provenance attestation
+      id-token: write # mint the OIDC token the attestation is signed with
 
     steps:
       - name: Check out the repo
@@ -183,7 +192,7 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GHCR
